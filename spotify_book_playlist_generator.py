@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from langchain_community.llms import OpenAI
+from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 import spotipy
@@ -11,11 +11,11 @@ import json
 load_dotenv()
 
 # Get OpenAI configuration from environment variables
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "text-davinci-002")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
 
 # Initialize OpenAI client
-llm = OpenAI(model_name=OPENAI_MODEL, openai_api_base=OPENAI_API_BASE, temperature=0.7)
+llm = ChatOpenAI(model_name=OPENAI_MODEL, openai_api_base=OPENAI_API_BASE, temperature=0.7)
 
 # Initialize Spotify client
 try:
@@ -36,6 +36,11 @@ def is_valid_json(json_string):
         return True
     except json.JSONDecodeError:
         return False
+
+def clean_json_response(response):
+    # Remove Markdown code block indicators
+    cleaned_response = response.replace("```json", "").replace("```", "").strip()
+    return cleaned_response
 
 def extract_chapter_info(book_title, user_input, max_retries=3, initial_tokens=1000):
     prompt = PromptTemplate(
@@ -63,12 +68,18 @@ def extract_chapter_info(book_title, user_input, max_retries=3, initial_tokens=1
 
     for attempt in range(max_retries):
         try:
-            custom_llm = OpenAI(model_name=OPENAI_MODEL, openai_api_base=OPENAI_API_BASE, temperature=0.7, max_tokens=initial_tokens * (attempt + 1))
+            custom_llm = ChatOpenAI(model_name=OPENAI_MODEL, openai_api_base=OPENAI_API_BASE, temperature=0.7, max_tokens=initial_tokens * (attempt + 1))
             chain = LLMChain(llm=custom_llm, prompt=prompt)
             result = chain.run(book_title=book_title, user_input=user_input)
             
-            if is_valid_json(result):
-                chapter_info = json.loads(result)
+            print(f"Raw response: {result}")  # Log the raw response for debugging
+            
+            # Clean the response if it's not valid JSON
+            cleaned_result = clean_json_response(result)
+            print(f"Cleaned response: {cleaned_result}")  # Log the cleaned response for debugging
+            
+            if is_valid_json(cleaned_result):
+                chapter_info = json.loads(cleaned_result)
                 return chapter_info
             else:
                 print(f"Attempt {attempt + 1}: Invalid JSON response. Retrying with increased token limit.")

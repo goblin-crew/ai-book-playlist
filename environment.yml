@@ -6,8 +6,8 @@ dependencies:
   - python=3.9
   - pip
   - pip:
-    - langchain==0.1.0
-    - langchain-community==0.0.10
-    - openai==1.6.1
-    - spotipy==2.23.0
-    - python-dotenv==1.0.0
+    - langchain
+    - langchain-community
+    - openai
+    - spotipy
+    - python-dotenv
