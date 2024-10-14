@@ -14,5 +14,3 @@ def print_configuration():
     print("Configuration:")
     print(f"OPENAI_MODEL: {OPENAI_MODEL}")
     print(f"OPENAI_API_BASE: {OPENAI_API_BASE}")
-    print(f"SPOTIFY_CLIENT_ID: {SPOTIFY_CLIENT_ID}")
-    print(f"SPOTIFY_CLIENT_SECRET: {SPOTIFY_CLIENT_SECRET}")

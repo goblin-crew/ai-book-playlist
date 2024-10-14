@@ -15,6 +15,12 @@ def initialize_spotify():
         print(f"Error initializing Spotify client: {e}")
         print("Please check your Spotify API credentials in the config.")
         return None
+    
+def print_parameters(parameters):
+    print("Spotify Parameters:")
+    for key, value in parameters.items():
+        print(f"{key}: {value}")
+        
 
 def get_available_genre_seeds(sp):
     try:
@@ -24,7 +30,7 @@ def get_available_genre_seeds(sp):
         print(f"Error getting available genre seeds: {e}")
         return []
 
-def get_spotify_recommendations(sp, parameters):
+def get_spotify_recommendations(sp, parameters, vocal_preference='b', min_instrumentalness=None):
     try:
         # Validate parameters
         if not isinstance(parameters['seed_genres'], list) or len(parameters['seed_genres']) > 5:
@@ -55,15 +61,32 @@ def get_spotify_recommendations(sp, parameters):
             print("Invalid limit: Must be an integer between 1 and 100.")
             return []
 
+        # Set instrumentalness and speechiness based on vocal preference
+        if vocal_preference == 'i':
+            parameters['min_instrumentalness'] = 0.5
+        elif vocal_preference == 'v':
+            parameters['min_instrumentalness'] = 0
+        elif vocal_preference != 'b':
+            print("Invalid vocal preference: Must be '(v)ocal', '(i)nstrumental', or '(b)oth'.")
+            return []
+
+        # Set min_instrumentalness if provided
+        if min_instrumentalness is not None:
+            if not (0 <= min_instrumentalness <= 1):
+                print("Invalid min_instrumentalness: Must be between 0 and 1.")
+                return []
+            parameters['min_instrumentalness'] = min_instrumentalness
+        print_parameters(parameters)
         recommendations = sp.recommendations(
             seed_genres=parameters['seed_genres'],
             target_valence=parameters['target_valence'],
             target_energy=parameters['target_energy'],
             target_tempo=parameters['target_tempo'],
             target_acousticness=parameters.get('target_acousticness'),
-            target_danceability=parameters.get('target_danceability'),
-            target_instrumentalness=parameters.get('target_instrumentalness'),
-            target_speechiness=parameters.get('target_speechiness'),
+            # target_danceability=parameters.get('target_danceability'),
+            # target_instrumentalness=parameters.get('target_instrumentalness'),
+            # target_speechiness=parameters.get('target_speechiness'),
+            min_instrumentalness=parameters.get('min_instrumentalness'),
             limit=parameters['limit']
         )
         return recommendations['tracks']
@@ -77,7 +100,7 @@ def create_spotify_playlist(sp, book_title, chapter_number, tracks):
         return None
 
     try:
-        playlist_name = f"{book_title} - Chapter {chapter_number} Playlist"
+        playlist_name = f"{book_title} - Chapter {chapter_number}"
         playlist = sp.user_playlist_create(sp.me()['id'], playlist_name, public=False)
         track_uris = [track['uri'] for track in tracks]
         sp.playlist_add_items(playlist['id'], track_uris)
