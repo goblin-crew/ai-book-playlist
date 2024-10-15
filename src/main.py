@@ -1,11 +1,11 @@
-from config import print_configuration
+from config import LOG_LEVEL, print_configuration
 from langchain_utils import extract_chapter_info, generate_spotify_parameters
 from spotify_utils import create_playlist_with_description, initialize_spotify, get_spotify_recommendations, create_spotify_playlist, get_available_genre_seeds
 from playlist_config import save_config, load_config, select_config_file
 import logging
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 
 def get_user_input():
     book_title = input("Enter the book title: ")

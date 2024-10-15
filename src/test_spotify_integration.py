@@ -1,5 +1,9 @@
+import logging
 from spotify_utils import initialize_spotify, get_spotify_recommendations, get_available_genre_seeds
 from langchain_utils import generate_spotify_parameters
+
+logging.basicConfig(level='DEBUG', format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
 
 def test_spotify_integration():
     # Initialize Spotify client
@@ -7,6 +11,7 @@ def test_spotify_integration():
     if not sp:
         print("Failed to initialize Spotify client.")
         return
+    
 
     # Get available genre seeds
     available_genres = get_available_genre_seeds(sp)
@@ -38,6 +43,16 @@ def test_spotify_integration():
         print("Recommended Tracks:")
         for track in tracks:
             print(f"- {track['name']} by {track['artists'][0]['name']}")
+    # Create a playlist with the recommended tracks
+        playlist_name = f"{book_title} Playlist"
+        playlist = sp.user_playlist_create(sp.me()['id'], playlist_name, public=False)
+        track_uris = [track['uri'] for track in tracks]
+        sp.playlist_add_items(playlist['id'], track_uris)
+        description = "Parameters used:"
+        for key, value in parameters.items():
+            description += f"{key}: {value}; "
+        sp.playlist_change_details(playlist['id'], description=description, public=False)
+        
     else:
         print("No tracks found.")
 

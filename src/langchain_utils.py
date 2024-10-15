@@ -4,10 +4,21 @@ from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 import json
 import logging
-from config import OPENAI_MODEL, OPENAI_API_BASE
+
+from tenacity import retry, retry_if_exception_type, stop_after_attempt
+from config import LOG_LEVEL, OPENAI_MODEL, OPENAI_API_BASE
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
+
+def langchain_retry_decorator(retry_count=3, custom_wait=1):
+    return retry(
+        retry=retry_if_exception_type(Exception),
+        stop=stop_after_attempt(retry_count),
+        wait=custom_wait,
+        reraise=True
+    )
 
 def initialize_openai():
     return ChatOpenAI(model_name=OPENAI_MODEL, openai_api_base=OPENAI_API_BASE, temperature=0.7)
@@ -95,6 +106,7 @@ def reduce_seeds(parameters):
 
     return parameters
 
+@langchain_retry_decorator()
 def generate_spotify_parameters(book_title, chapter_summary, music_preferences, available_genres):
     prompt = PromptTemplate(
         input_variables=["book_title", "chapter_summary", "music_preferences", "available_genres"],
@@ -161,4 +173,4 @@ def generate_spotify_parameters(book_title, chapter_summary, music_preferences, 
         return parameters
     except Exception as e:
         logging.error(f"Error generating Spotify parameters: {e}")
-        return None
+        raise e
