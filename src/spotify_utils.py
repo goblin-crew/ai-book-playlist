@@ -1,7 +1,28 @@
+import logging
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from config import SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET
+from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 
+def spotify_retry_decorator():
+    def custom_wait(retry_state):
+        exception = retry_state.outcome.exception()
+        if isinstance(exception, spotipy.exceptions.SpotifyException) and exception.http_status == 429:
+            retry_after = exception.headers.get('Retry-After', '1')
+            wait_time = int(retry_after)
+            print(f"Rate limit exceeded. Waiting for {wait_time} seconds before retrying.")
+            return wait_fixed(wait_time)
+        logging.error(f"Error: {exception}")
+        return wait_fixed(1)  # Default wait time
+
+    return retry(
+        retry=retry_if_exception_type((spotipy.exceptions.SpotifyException, ConnectionError)),
+        stop=stop_after_attempt(5),
+        wait=custom_wait,
+        reraise=True
+    )
+
+@spotify_retry_decorator()
 def initialize_spotify():
     try:
         sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
@@ -21,14 +42,17 @@ def print_parameters(parameters):
     for key, value in parameters.items():
         print(f"{key}: {value}")
         
+@spotify_retry_decorator()
 def get_available_genre_seeds(sp: spotipy.Spotify):
     try:
+        logging.info("Getting available genre seeds...")
         genres = sp.recommendation_genre_seeds()
         return genres['genres']
     except Exception as e:
         print(f"Error getting available genre seeds: {e}")
         return []
 
+@spotify_retry_decorator()
 def search_track(sp: spotipy.Spotify, track_name):
     try:
         results = sp.search(q=track_name, type='track', limit=1)
@@ -41,6 +65,7 @@ def search_track(sp: spotipy.Spotify, track_name):
         print(f"Error searching for track: {e}")
         return None
 
+@spotify_retry_decorator()
 def search_artist(sp: spotipy.Spotify, artist_name):
     try:
         results = sp.search(q=artist_name, type='artist', limit=1)
@@ -53,6 +78,7 @@ def search_artist(sp: spotipy.Spotify, artist_name):
         print(f"Error searching for artist: {e}")
         return None
 
+@spotify_retry_decorator()
 def get_spotify_recommendations(sp: spotipy.Spotify, parameters, vocal_preference='b', min_instrumentalness=None):
     try:
         # Resolve track and artist names to IDs
@@ -95,6 +121,7 @@ def get_spotify_recommendations(sp: spotipy.Spotify, parameters, vocal_preferenc
             parameters['min_instrumentalness'] = min_instrumentalness
 
         print_parameters(parameters)
+        logging.info("Getting Spotify recommendations...")
         recommendations = sp.recommendations(
             seed_genres=parameters.get('seed_genres', None),
             seed_tracks=parameters.get('seed_tracks', None),
@@ -110,6 +137,7 @@ def get_spotify_recommendations(sp: spotipy.Spotify, parameters, vocal_preferenc
         print(f"Error getting Spotify recommendations: {e}")
         return []
 
+@spotify_retry_decorator()
 def create_spotify_playlist(sp: spotipy.Spotify, book_title, chapter_number, tracks):
     if not tracks:
         print(f"No tracks found for Chapter {chapter_number}. Skipping playlist creation.")
@@ -117,10 +145,31 @@ def create_spotify_playlist(sp: spotipy.Spotify, book_title, chapter_number, tra
 
     try:
         playlist_name = f"{book_title} - Chapter {chapter_number}"
+        
+        # Create playlist without description
         playlist = sp.user_playlist_create(sp.me()['id'], playlist_name, public=False)
         track_uris = [track['uri'] for track in tracks]
         sp.playlist_add_items(playlist['id'], track_uris)
-        return playlist['external_urls']['spotify']
+        return playlist['id'], playlist['external_urls']['spotify']
     except Exception as e:
         print(f"Error creating Spotify playlist: {e}")
-        return None
+        return None, None
+
+@spotify_retry_decorator()
+def update_playlist_description(sp: spotipy.Spotify, playlist_id, parameters):
+    try:
+        # Format parameters for description
+        description = "Parameters used:\n"
+        for key, value in parameters.items():
+            description += f"{key}: {value}\n"
+        
+        sp.playlist_change_details(playlist_id, description=description)
+        print(f"Updated description for playlist {playlist_id}")
+    except Exception as e:
+        print(f"Error updating playlist description: {e}")
+
+def create_playlist_with_description(sp: spotipy.Spotify, book_title, chapter_number, tracks, parameters):
+    playlist_id, playlist_url = create_spotify_playlist(sp, book_title, chapter_number, tracks)
+    if playlist_id:
+        update_playlist_description(sp, playlist_id, parameters)
+    return playlist_url

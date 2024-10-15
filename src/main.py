@@ -1,10 +1,25 @@
 from config import print_configuration
 from langchain_utils import extract_chapter_info, generate_spotify_parameters
-from spotify_utils import initialize_spotify, get_spotify_recommendations, create_spotify_playlist, get_available_genre_seeds
+from spotify_utils import create_playlist_with_description, initialize_spotify, get_spotify_recommendations, create_spotify_playlist, get_available_genre_seeds
+from playlist_config import save_config, load_config, select_config_file
 import logging
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
+
+def get_user_input():
+    book_title = input("Enter the book title: ")
+    user_input = input("Enter any comments about the book and summaries of some chapters: ")
+    music_preferences = input("Enter any music preferences (e.g., genre, instrumental only): ")
+    vocal_preference = input("Do you want vocal tracks, instrumental tracks, or both? ((v)ocal/(i)nstrumental/(b)oth): ")
+    min_instrumentalness = input("Enter a minimum instrumentalness value (0-1) or press Enter to skip: ")
+    return {
+        "book_title": book_title,
+        "user_input": user_input,
+        "music_preferences": music_preferences,
+        "vocal_preference": vocal_preference,
+        "min_instrumentalness": min_instrumentalness
+    }
 
 def main():
     logging.info("Application started.")
@@ -15,11 +30,31 @@ def main():
         logging.error("Failed to initialize Spotify. Exiting.")
         return
 
-    book_title = input("Enter the book title: ")
-    user_input = input("Enter any comments about the book and summaries of some chapters: ")
-    music_preferences = input("Enter any music preferences (e.g., genre, instrumental only): ")
-    vocal_preference = input("Do you want vocal tracks, instrumental tracks, or both? ((v)ocal/(i)nstrumental/(b)oth): ")
-    min_instrumentalness = input("Enter a minimum instrumentalness value (0-1) or press Enter to skip: ")
+    use_existing_config = input("Do you want to use an existing configuration? (y/n): ").lower() == 'y'
+
+    if use_existing_config:
+        config_name = select_config_file()
+        if config_name:
+            config = load_config(config_name)
+            logging.info(f"Loaded configuration: {config_name}")
+        else:
+            logging.info("No configuration selected. Exiting.")
+            return
+    else:
+        config = get_user_input()
+
+    book_title = config['book_title']
+    user_input = config['user_input']
+    music_preferences = config['music_preferences']
+    vocal_preference = config['vocal_preference']
+    min_instrumentalness = config['min_instrumentalness']
+    
+    if (not use_existing_config):
+        do_save_config = input("Do you want to save this configuration for future use? (y/n): ").lower() == 'y'
+        # Save the configuration if it's new
+        if do_save_config:
+            config_name = input("Enter a name for this configuration: ")
+            save_config(config, config_name)
 
     chapter_info = extract_chapter_info(book_title, user_input)
     
@@ -47,7 +82,12 @@ def main():
             else:
                 logging.warning(f"No tracks found for Chapter {chapter['number']}.")
 
-            playlist_url = create_spotify_playlist(sp, book_title, chapter['number'], tracks)
+            # Add vocal_preference and min_instrumentalness to parameters
+            parameters['vocal_preference'] = vocal_preference
+            if min_instrumentalness_value is not None:
+                parameters['min_instrumentalness'] = min_instrumentalness_value
+
+            playlist_url = create_playlist_with_description(sp, book_title, chapter['number'], tracks, parameters)
             if playlist_url:
                 logging.info(f"Playlist for Chapter {chapter['number']} created: {playlist_url}")
             else:
