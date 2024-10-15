@@ -1,3 +1,4 @@
+import random
 from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
@@ -70,6 +71,30 @@ def extract_chapter_info(book_title, user_input, max_retries=3, initial_tokens=1
     logging.error("Failed to extract valid chapter information after multiple attempts.")
     return None
 
+def reduce_seeds(parameters):
+    seed_types = ['seed_genres', 'seed_tracks', 'seed_artists']
+    total_seeds = sum(len(parameters.get(seed_type, [])) for seed_type in seed_types)
+    
+    if total_seeds <= 5:
+        return parameters
+
+    reduced_seeds = {seed_type: parameters.get(seed_type, []).copy() for seed_type in seed_types}
+    while sum(len(seeds) for seeds in reduced_seeds.values()) > 5:
+        # Find the seed type with the most seeds
+        max_seed_type = max(reduced_seeds, key=lambda x: len(reduced_seeds[x]))
+        if len(reduced_seeds[max_seed_type]) > 0:
+            # Remove a random seed from the seed type with the most seeds
+            reduced_seeds[max_seed_type].pop(random.randint(0, len(reduced_seeds[max_seed_type]) - 1))
+
+    # Update the parameters with the reduced seeds
+    for seed_type in seed_types:
+        if reduced_seeds[seed_type]:
+            parameters[seed_type] = reduced_seeds[seed_type]
+        elif seed_type in parameters:
+            del parameters[seed_type]
+
+    return parameters
+
 def generate_spotify_parameters(book_title, chapter_summary, music_preferences, available_genres):
     prompt = PromptTemplate(
         input_variables=["book_title", "chapter_summary", "music_preferences", "available_genres"],
@@ -81,17 +106,17 @@ def generate_spotify_parameters(book_title, chapter_summary, music_preferences, 
         Available genres: {available_genres}
 
         Please provide the following parameters as a JSON object:
-        1. 'seed_genres': A list minimum 1 and maximum 5 that match the chapter's mood and theme, choose precisely,less is more, selected from the available genres, separated by commas.
-        2. 'target_valence': A float between 0 and 1 representing the musical positiveness.
-        3. 'target_energy': A float between 0 and 1 representing the intensity and activity.
-        4. 'target_tempo': An integer representing the estimated tempo in BPM.
-        5. 'target_acousticness': A float between 0 and 1 representing the acousticness of the track.
-        6. 'target_danceability': A float between 0 and 1 representing how suitable a track is for dancing.
-        7. 'target_instrumentalness': A float between 0 and 1 representing the likelihood that a track is instrumental.
-        8. 'target_speechiness': A float between 0 and 1 representing the presence of spoken words in a track.
-        9. 'limit': An integer for the number of tracks to return (max 50).
+        1. 'seed_genres': A list of 1 to 5 genres that match the chapter's mood and theme, chosen precisely from the available genres.
+        2. 'seed_tracks': A list of 1 to 5 track names (including artist names) that match the chapter's mood and theme. Use your knowledge to suggest appropriate tracks.
+        3. 'seed_artists': A list of 1 to 5 artist names that match the chapter's mood and theme. Use your knowledge to suggest appropriate artists.
+        4. 'target_valence': A float between 0 and 1 representing the musical positiveness.
+        5. 'target_energy': A float between 0 and 1 representing the intensity and activity.
+        6. 'target_tempo': An integer representing the estimated tempo in BPM.
+        7. 'limit': An integer for the number of tracks to return (max 50).
 
-        Format the output as a valid JSON object, ensuring that the 'seed_genres' are properly formatted as a list with items separated by commas.
+        Important: Provide at least 1 and up to 5 items for each of seed_genres, seed_tracks, and seed_artists. The total number of seeds across all three categories should not exceed 5.
+
+        Format the output as a valid JSON object, ensuring that the 'seed_genres', 'seed_tracks', and 'seed_artists' are properly formatted as lists.
         """
     )
 
@@ -103,34 +128,33 @@ def generate_spotify_parameters(book_title, chapter_summary, music_preferences, 
         result = chain.run(book_title=book_title, chapter_summary=chapter_summary, music_preferences=music_preferences, available_genres=", ".join(available_genres), timeout=30)  # Added timeout
         logging.info("Received raw parameters response from OpenAI.")
         parameters = json.loads(clean_json_response(result))
+        parameters = reduce_seeds(parameters)
+        logging.info(f"Reduced parameters: {parameters}")
+        
 
         # Validate parameters
-        if not isinstance(parameters['seed_genres'], list) or len(parameters['seed_genres']) > 5:
-            logging.error("Invalid seed_genres: Must be a list of up to 5 genres.")
+        total_seeds = len(parameters.get('seed_genres', [])) + len(parameters.get('seed_tracks', [])) + len(parameters.get('seed_artists', []))
+        if total_seeds == 0 or total_seeds > 5:
+            logging.error(f"Invalid total number of seeds: {total_seeds}. Must be between 1 and 5.")
             return None
-        if not (0 <= parameters['target_valence'] <= 1):
-            logging.error("Invalid target_valence: Must be between 0 and 1.")
+
+        for seed_type in ['seed_genres', 'seed_tracks', 'seed_artists']:
+            if seed_type in parameters and (len(parameters[seed_type]) < 1 or len(parameters[seed_type]) > 5):
+                logging.error(f"Invalid {seed_type}: Must contain between 1 and 5 items.")
+                return None
+        
+        for feature in ['valence', 'energy']:
+            target_key = f'target_{feature}'
+            if not (0 <= parameters[target_key] <= 1):
+                logging.error(f"Invalid {target_key}: Must be between 0 and 1.")
+                return None
+
+        if not isinstance(parameters['target_tempo'], (int, float)) or parameters['target_tempo'] < 0:
+            logging.error("Invalid target_tempo: Must be a non-negative number.")
             return None
-        if not (0 <= parameters['target_energy'] <= 1):
-            logging.error("Invalid target_energy: Must be between 0 and 1.")
-            return None
-        if not isinstance(parameters['target_tempo'], int) or parameters['target_tempo'] < 0:
-            logging.error("Invalid target_tempo: Must be a non-negative integer.")
-            return None
-        if not (0 <= parameters.get('target_acousticness', 0) <= 1):
-            logging.error("Invalid target_acousticness: Must be between 0 and 1.")
-            return None
-        if not (0 <= parameters.get('target_danceability', 0) <= 1):
-            logging.error("Invalid target_danceability: Must be between 0 and 1.")
-            return None
-        if not (0 <= parameters.get('target_instrumentalness', 0) <= 1):
-            logging.error("Invalid target_instrumentalness: Must be between 0 and 1.")
-            return None
-        if not (0 <= parameters.get('target_speechiness', 0) <= 1):
-            logging.error("Invalid target_speechiness: Must be between 0 and 1.")
-            return None
+
         if not isinstance(parameters['limit'], int) or parameters['limit'] <= 0 or parameters['limit'] > 50:
-            logging.error("Invalid limit: Must be an integer between 1 and 100.")
+            logging.error("Invalid limit: Must be an integer between 1 and 50.")
             return None
 
         logging.info("Successfully generated Spotify parameters.")
